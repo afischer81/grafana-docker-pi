@@ -1,11 +1,12 @@
 #!/bin/bash
 
-IMAGE=grafana-fischer
+GRAFANA_VERSION=7.3.1
+IMAGE=grafana-fischer:${GRAFANA_VERSION}
 
 function do_build {
     docker build \
-        --build-arg "GRAFANA_VERSION=latest" \
-        --build-arg "GF_INSTALL_IMAGE_RENDERER_PLUGIN=true" \
+        --build-arg GRAFANA_VERSION=${GRAFANA_VERSION} \
+        --build-arg "GF_INSTALL_IMAGE_RENDERER_PLUGIN=false" \
         --build-arg "GF_INSTALL_PLUGINS=briangann-gauge-panel,btplc-trend-box-panel,grafana-clock-panel,grafana-piechart-panel,grafana-simple-json-datasource,mtanda-histogram-panel,pmm-singlestat-panel,vonage-status-panel" \
         -t ${IMAGE} \
         -f Dockerfile .
@@ -42,6 +43,30 @@ function do_start {
 
 function do_stop {
     docker rm -f grafana
+}
+
+function do_backup {
+    backup=grafana_$(date +'%Y%m%d').tar
+    rm -f ${backup} ${backup}.xz
+    docker stop grafana
+    docker run --rm -v grafana-storage:/var/lib/grafana -v ${PWD}:/backup --entrypoint /bin/bash ${IMAGE} -c "tar -C / -c -f /backup/${backup} /var/lib/grafana"
+    docker start grafana
+    xz ${backup}
+}
+
+function do_restore {
+    backup=$1
+    case $1 in
+        *.xz) 
+            xz -d $1
+            backup=$(basename $1 .xz)
+            ;;
+    esac
+    do_stop
+    docker volume rm grafana-storage
+    docker volume create grafana-storage
+    docker run --rm -v grafana-storage:/var/lib/grafana -v ${PWD}:/backup --entrypoint /bin/bash ${IMAGE} -c "tar -C / -x -f /backup/${backup}"
+    do_start
 }
 
 function do_shell {
